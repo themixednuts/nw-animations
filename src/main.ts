@@ -1,10 +1,12 @@
 import { JSDOM } from 'jsdom'
 import path from 'path'
-import { writeFile, stat, readdir } from 'fs/promises'
+import { writeFile, stat, readdir, mkdir, access } from 'fs/promises'
 import { Stats } from "fs"
+import dotenv from 'dotenv'
+dotenv.config()
 
 //GLOBAL
-const ANIMATIONDIRECTORY = 'E:/Extract/NW-Live/animations/mannequin/adb' //./animations/mannequin/adb
+const ANIMATIONDIRECTORY = process.env.ANIMATIONDIRECTORY || '' //{nw-directory}/animations/mannequin/adb
 const ANIMATIONDATA: AnimnationData = {}
 
 type AnimnationData = {
@@ -39,7 +41,8 @@ type ProceduralParam = {
 async function main() {
     console.time('Total Time')
     await walkDir(ANIMATIONDIRECTORY, parseAnimations)
-    await writeFile('./animations.json', JSON.stringify(ANIMATIONDATA, null, 2))
+    await access('./output').catch(async () => await mkdir('./output'))
+    await writeFile('./output/animations.json', JSON.stringify(ANIMATIONDATA, null, 2))
     console.timeEnd('Total Time')
 }
 

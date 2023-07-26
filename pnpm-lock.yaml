@@ -8,6 +8,9 @@ devDependencies:
   '@types/jsdom':
     specifier: ^21.1.1
     version: 21.1.1
+  dotenv:
+    specifier: ^16.3.1
+    version: 16.3.1
   jsdom:
     specifier: ^22.1.0
     version: 22.1.0
@@ -107,6 +110,11 @@ packages:
     engines: {node: '>=12'}
     dependencies:
       webidl-conversions: 7.0.0
+    dev: true
+
+  /dotenv@16.3.1:
+    resolution: {integrity: sha512-IPzF4w4/Rd94bA9imS68tZBaYyBWSCE47V1RGuMrB94iyTOIEwRmVL2x/4An+6mETpLrKJ5hQkB8W4kFAadeIQ==}
+    engines: {node: '>=12'}
     dev: true
 
   /entities@4.5.0:
