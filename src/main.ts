@@ -1,152 +1,55 @@
-import { JSDOM } from 'jsdom'
 import path from 'path'
 import { writeFile, stat, readdir, mkdir, access } from 'fs/promises'
-import { Stats } from "fs"
-import dotenv from 'dotenv'
-dotenv.config()
+import { handleQuery } from './lib/animations.js'
+import { AnimationQuery } from './lib/types.js'
+import { env } from './utils/config.js'
 
 //GLOBAL
-const ANIMATIONDIRECTORY = process.env.ANIMATIONDIRECTORY || '' //{nw-directory}/animations/mannequin/adb
-const ANIMATIONDATA: AnimnationData = {}
+const ANIMATIONDIRECTORY = env ? process.env.ANIMATIONDIRECTORY : '' //{nw-directory}/animations/mannequin/adb
 
-type AnimnationData = {
-    [key: string]: FragmentData[]
+/**
+ * @param [query={}] - case-insensitive 
+ *
+ * @param [match=false] - used for tags query to return only exact match, else just checks if it 
+ * contains the string array
+ *
+ * @example
+ * ```typescript
+ * const query: AnimationQuery = {
+ *  tags: ['axe', '1h_melee'],
+ *  fragment: "Attack_Primary"
+ * }
+ * const result = await animationsQuery(query)
+ * ```
+ */
+export default async function queryAnimation(query: AnimationQuery = {}, match: boolean = false) {
+  console.time('Total Time')
+  const result: string[] = await walkDir(ANIMATIONDIRECTORY || '', handleQuery, [query, match])
+  console.timeEnd('Total Time')
+  console.log(result[0])
+  return result
 }
 
-type FragmentData = {
-    [key: string]: string | FragmentNode[] | undefined,
-    blendoutduration?: string,
-    tags?: string,
-    proclayer?: FragmentNode[]
-}
-
-type FragmentNode = ProcLayerData[]
-
-type ProcLayerData = ProcLayerNode[]
-
-type ProcLayerNode = {
-    [key: string]: string | ProceduralParam | undefined,
-    exittime?: string,
-    starttime?: string,
-    duration?: string,
-    curvetype?: string,
-    type?: string,
-    contexttype?: string,
-}
-type ProceduralParam = {
-    [key: string]: string | undefined,
-}
-
-
-async function main() {
-    console.time('Total Time')
-    await walkDir(ANIMATIONDIRECTORY, parseAnimations)
-    await access('./output').catch(async () => await mkdir('./output'))
-    await writeFile('./output/animations.json', JSON.stringify(ANIMATIONDATA, null, 2))
-    console.timeEnd('Total Time')
-}
-
-async function parseXML(xml: string) {
-    const dom = await JSDOM.fromFile(xml)
-    const document = dom.window.document
-    return document
-}
-
-async function walkDir(dir: string, callback: Function) {
-    const files = await readdir(dir)
-    for (const file of files) {
-        const filepath = path.join(dir, file)
-        const stats = await stat(filepath)
-        if (stats.isDirectory()) {
-            await walkDir(filepath, callback)
-        } else if (stats.isFile()) {
-            await callback(filepath, stats)
-        }
+async function walkDir(dir: string, callback: Function, params?: {}[]) {
+  const values = []
+  const files = await readdir(dir)
+  for (const file of files) {
+    const filepath = path.join(dir, file)
+    const stats = await stat(filepath)
+    if (stats.isDirectory()) {
+      await walkDir(filepath, callback, params)
+    } else if (stats.isFile()) {
+      const value = await callback(filepath, params)
+      if (value) values.push(value)
     }
+  }
+  return values
 }
-
-async function parseAnimations(filePath: string, stats: Stats) {
-
-    if (!path.basename(filePath).includes(".adb") || !path.basename(filePath).includes('player')) {
-        return
-    }
-
-    const baseName = path.basename(filePath, '.adb')
-
-    console.time(baseName)
-    const document = await parseXML(filePath)
-    const fragmentList = document.querySelector('FragmentList')
-
-    if (!fragmentList) {
-        console.log('No FragmentList found in ' + filePath)
-        console.timeEnd(baseName)
-        return
-    }
-
-    for (const fragmentName of fragmentList.children) {
-        if (!ANIMATIONDATA[fragmentName.nodeName]) {
-            ANIMATIONDATA[fragmentName.nodeName] = []
-        }
-
-        const fragmentObj: FragmentData = {}
-
-        fragmentName.querySelectorAll('Fragment').forEach((fragmentChild) => {
-            for (const attribute of fragmentChild.attributes) {
-                if (!attribute.nodeValue) continue
-                fragmentObj[attribute.nodeName] = attribute.nodeValue
-
-            }
-
-            fragmentObj["proclayer"] = []
-
-            fragmentChild.querySelectorAll('ProcLayer').forEach((procLayer) => {
-                const procLayerObj: FragmentNode = []
-
-                const blends = procLayer.querySelectorAll('Blend')
-                const procedurals = procLayer.querySelectorAll('Procedural')
-                const arr: ProcLayerData = new Array(blends.length)
-
-                for (let i = 0; i < blends.length; i++) {
-                    const blendObj: ProcLayerNode = {}
-                    for (const attribute of blends[i].attributes) {
-                        if (!attribute.nodeValue) continue
-                        blendObj[attribute.nodeName] = attribute.nodeValue
-                    }
-                    for (const attribute of procedurals[i].attributes) {
-                        if (!attribute.nodeValue) continue
-                        blendObj[attribute.nodeName] = attribute.nodeValue
-                    }
-
-                    const params = procedurals[i].querySelector('ProceduralParams')
-                    if (params) {
-
-                        for (const param of params.querySelectorAll('*')) {
-                            const paramObj: ProceduralParam = {}
-
-                            for (const attribute of param.attributes) {
-                                if (!attribute.nodeValue) continue
-                                paramObj[attribute.nodeName] = attribute.nodeValue
-                            }
-                            blendObj[param.nodeName.toLowerCase()] = paramObj
-                        }
-                    }
-
-                    arr[i] = blendObj
-
-                }
-                procLayerObj.push(arr)
-
-                fragmentObj.proclayer?.push(procLayerObj)
-            })
-        })
-
-        ANIMATIONDATA[fragmentName.nodeName].push(fragmentObj)
-    }
-
-    console.timeEnd(baseName)
-}
-
-
 
 //entry
-main()
+queryAnimation({
+  fragment: "Attack_Primary",
+  damagetablerow: "1H_Club_Attack1",
+  damagekey: "atk1",
+  type: "cage-damage"
+})
