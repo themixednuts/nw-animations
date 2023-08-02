@@ -1,55 +1,94 @@
+import { createParamsExpression } from "../utils/createparamsexpression.js"
 import { xpathmatch } from "../utils/xpathmatch.js"
-import { AnimationQuery } from "./types.js"
-import path from 'path'
-import { JSDOM } from 'jsdom'
-//@ts-ignore
-import saxon from 'saxon-js'
+import { AnimationQuery, AnimationQueryResult} from "./types.js"
+/**
+ * @param doc - xmldoc string
+ * @param [query={}] - case-insensitive 
+ * @param [match=false] - used for tags query to return only exact match, else just checks if it 
+ * contains the string array
+ *
+ * @example
+ * ```typescript
+ * const query: AnimationQuery = {
+ *  tags: ['axe', '1h_melee'],
+ *  fragment: "Attack_Primary"
+ * }
+ * const result = await animationsQuery(query)
+ * ```
+ */
+export async function animationQuery(doc: Document, query: AnimationQuery, match: boolean = false) {
+  const fragment = query.fragment ? `${query.fragment.toLowerCase()}/` : ''
+  const tags = query.tags ? `[${xpathmatch("tags", query.tags.join("+"), match)}]` : ''
 
-
-type Param = [AnimationQuery, boolean?]
-export async function handleQuery(filePath: string, params: Param) {
-  if (!path.basename(filePath).includes(".adb")) {
-    return
-  }
-
-  const baseName = path.basename(filePath, '.adb')
-
-  console.time(baseName)
-  const query = params[0]
-  const match = params[1] || false
-  const xml = await saxon.getResource({
-    file: filePath,
-    type: "xml"
-  })
-
-  const fragment = query.fragment ? `//${query.fragment}` : ''
-  const tags = query.tags ? `[${xpathmatch("Tags", query.tags.join("+"), match)}]` : ''
-
-  const proceduralQuery = []
   const type = query.type ? xpathmatch("type", query.type, match) : ''
   const contextType = query.contexttype ? xpathmatch("contextType", query.contexttype, match) : ''
+  const proceduralVariables = [type, contextType].filter(value => value)
 
-  const newAction = query.newaction ? `lower-case(ProceduralParams/NewAction/@value) = lower-case("${query.newaction}")` : ''
-  const newFragment = query.newfragment ? `lower-case(ProceduralParams/NewFragment/@value) = lower-case("${query.newfragment}")` : ''
-  const damageTableRow = query.damagetablerow ? `lower-case(ProceduralParams/DamageTableRow/@value) = lower-case("${query.damagetablerow}")` : ''
-  const damageKey = query.damagekey ? `lower-case(ProceduralParams/DamageKey/@value) = lower-case("${query.damagekey}")` : ''
-  const condition = query.condition ? `lower-case(ProceduralParams/Condition/@value) = lower-case("${query.condition}")` : ''
-  const name = query.name ? `lower-case(ProceduralParams/Name/@value) = lower-case("${query.name}")` : ''
+  const newAction = createParamsExpression(query.newaction, 'NewAction')
+  const newFragment = createParamsExpression(query.newfragment, 'NewFragment')
+  const damageTableRow = createParamsExpression(query.damagetablerow, 'DamageTableRow')
+  const damageKey = createParamsExpression(query.damagekey, 'DamageKey')
+  const condition = createParamsExpression(query.condition, 'Condition')
+  const name = createParamsExpression(query.name, 'Name')
 
-  const variables = [type, contextType, newAction, newFragment, damageTableRow, damageKey, condition, name];
-  proceduralQuery.push(...variables.filter((value) => value));
+  const paramsVariables = [newAction, newFragment, damageTableRow, damageKey, condition, name].filter(value => value);
 
-  const procedural = proceduralQuery.length > 0 ? `[Procedural[${proceduralQuery.join(" and ")}]]` : ''
-  const expression = `${fragment}//Fragment${tags}/ProcLayer${procedural}`
+  const proceduralQuery = proceduralVariables.length > 0 ? proceduralVariables.join(" and ") : ''
+  const paramsQuery = paramsVariables.length > 0 ? `.//proceduralparams[${paramsVariables.join(" and ")}]` : ''
+  const comboQuery = paramsQuery && proceduralQuery ? `[${proceduralQuery} and ${paramsQuery}]` : `[${proceduralQuery || paramsQuery}]`
+
+  const procedural = `[.//procedural${comboQuery}]`
+  const expression = `//${fragment}fragment${tags}/proclayer${procedural}`
 
   //console.log(expression)
+  const evaluation = doc.evaluate(expression, doc, null, 5, null)
 
-  const evaluation = saxon.XPath.evaluate(expression, xml)
-  const serialized = saxon.serialize(evaluation)
-  const xmlEval = serialized //.replace('<?xml version="1.0" encoding="UTF-8"?>', "")
-  const dom = new JSDOM(xmlEval)
-  const doc = dom.window.document.querySelector('body')?.innerHTML
+  let node = evaluation.iterateNext() as HTMLUnknownElement | null
+  const result: AnimationQueryResult[][] = []
+  while (node) {
+    const fragmentName = node.closest("fragment")?.parentNode?.nodeName
 
-  console.timeEnd(baseName)
-  return doc
+    const blends = node.querySelectorAll('blend')
+    const procedurals = node.querySelectorAll('procedural')
+
+    const eleResult: AnimationQueryResult[] = []
+
+    for (let i = 0; i < blends.length; i++) {
+
+      const obj: AnimationQueryResult = {
+        fragment: fragmentName || '',
+        starttime: '',
+        exittime: '',
+        duration: '',
+        curvetype: '',
+        type: '',
+        contexttype: '',
+        proceduralparams: {}
+      }
+
+      for (const attribute of blends[i]?.attributes) {
+        obj[attribute.nodeName] = attribute.nodeValue || ''
+      }
+
+      if (procedurals[i]) {
+        for (const attribute of procedurals[i].attributes) {
+          obj[attribute.nodeName] = attribute.nodeValue || ''
+        }
+      }
+      const params = procedurals[i]?.querySelector('ProceduralParams')
+      if (!params) continue
+      obj.proceduralparams = {} as { [key: string]: string }
+      for (const child of params.querySelectorAll('*')) {
+        obj.proceduralparams[child.nodeName.toLowerCase()] = child.getAttribute('value')?.valueOf() || ''
+      }
+      eleResult.push(obj)
+    }
+
+    if (eleResult.length > 0) {
+      result.push(eleResult)
+    }
+
+    node = evaluation.iterateNext() as HTMLUnknownElement | null
+  }
+  return result
 }
