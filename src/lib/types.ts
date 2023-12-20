@@ -15,11 +15,35 @@
  * }
  */
 export type AnimationQuery = {
-  [key: string]: string | string[] | undefined,
-  fragment?: string, //name of action
+  animation?: string, //name of action
+  fragment?: FragmentQuery,
+}
+
+export type FragmentQuery = {
   tags?: string[],
+  proclayer?: ProcLayerQuery,
+}
+
+export type ProcLayerQuery = {
+  // blend?: BlendQuery,
+  procedural?: ProceduralQuery,
+}
+
+export type BlendQuery = {
+  exittime?: string,
+  starttime?: string,
+  duration?: string,
+  curvetype?: string,
+}
+
+export type ProceduralQuery = {
   type?: string,
   contexttype?: string,
+  params?: ProceduralParamsQuery,
+}
+
+export type ProceduralParamsQuery = {
+  [key: string]: string | undefined,
   newaction?: string,
   newfragment?: string,
   condition?: string,
@@ -28,50 +52,26 @@ export type AnimationQuery = {
   name?: string,
 }
 
-export type Param = [AnimationQuery, boolean]
-
 export type ProceduralParamsData = {
   [key: string]: string
 }
 
-export type BlendsData = {
-  starttime: string,
-  exittime: string,
-  duration: string,
-  curvetype: string
+export type AnimationData = {
+  Animation?: string,
+  Fragments?: FragmentData[]
 }
 
-export type ProceduralData = {
-  type: string,
-  contexttype: string
+export type FragmentData = {
+  Tags?: string,
+  ProcLayers?: ProcLayerData[][]
 }
 
-
-export type AnimationQueryResult = {
-  [key: string]: string | ProceduralParamsData,
-  fragment: string,
-  starttime: string,
-  exittime: string,
-  duration: string,
-  curvetype: string,
-  type: string,
-  contexttype: string,
-  proceduralparams: ProceduralParamsData
+export type ProcLayerData = {
+  StartTime?: string,
+  ExitTime?: string,
+  Duration?: string,
+  CurveType?: string,
+  type?: string,
+  contextType?: string,
+  ProceduralParams?: ProceduralParamsData
 }
-
-export type QueryOptions = {
-  match: boolean,
-  type: "text" | "file" | "uri"
-}
-
-export type SaxonOptions = {
-  file?: string,
-  location?: string,
-  text?: string,
-  type?: "xml" | "text" | "json",
-  encoding?: "utf8" | "ucs2" | "utf16le" | "latin1" | "ascii",
-  baseURI?: string,
-  headers?: {}
-}
-
-

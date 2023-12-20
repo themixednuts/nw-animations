@@ -1,91 +1,131 @@
 import { createParamsExpression } from "../utils/createparamsexpression.js"
 import { xpathmatch } from "../utils/xpathmatch.js"
-import { AnimationQuery, AnimationQueryResult} from "./types.js"
+import { AnimationData, AnimationQuery, ProcLayerData } from "./types.js"
+import { type JSDOM } from 'jsdom'
 /**
- * @param doc - xmldoc string
- * @param [query={}] - case-insensitive 
- * @param [match=false] - used for tags query to return only exact match, else just checks if it 
- * contains the string array
- *
  * @example
  * ```typescript
  * const query: AnimationQuery = {
  *  tags: ['axe', '1h_melee'],
  *  fragment: "Attack_Primary"
  * }
- * const result = await animationsQuery(query)
+ * const result = animationsQuery(query)
  * ```
  */
-export async function animationQuery(doc: Document, query: AnimationQuery, match: boolean = false) {
-  const fragment = query.fragment ? `${query.fragment.toLowerCase()}/` : ''
-  const tags = query.tags ? `[${xpathmatch("tags", query.tags.join("+"), match)}]` : ''
+export function Query(doc: JSDOM['window']['document'], query?: AnimationQuery, caseSensitive: boolean = false) {
 
-  const type = query.type ? xpathmatch("type", query.type, match) : ''
-  const contextType = query.contexttype ? xpathmatch("contextType", query.contexttype, match) : ''
-  const proceduralVariables = [type, contextType].filter(value => value)
+  let expression = '//'
+  if (query) {
+    const { animation, fragment } = query
+    if (animation) expression += `${animation.toLowerCase()}/`
+    expression += 'fragment'
+    if (fragment) {
+      const { tags, proclayer } = fragment
+      if (tags) expression += `[${xpathmatch("tags", tags.join("+"), caseSensitive)}]/`
+      if (proclayer) {
+        expression += '/proclayer'
+        const { procedural } = proclayer
+        if (procedural) {
+          const procedurals = []
+          const { type, contexttype, params } = procedural
+          if (type) procedurals.push(xpathmatch("type", type, caseSensitive))
+          if (contexttype) procedurals.push(xpathmatch("contextType", contexttype, caseSensitive))
+          if (params) {
+            const paramsList = []
+            for (const [key, value] of Object.entries(params)) {
+              paramsList.push(createParamsExpression(value, key))
+            }
 
-  const newAction = createParamsExpression(query.newaction, 'NewAction')
-  const newFragment = createParamsExpression(query.newfragment, 'NewFragment')
-  const damageTableRow = createParamsExpression(query.damagetablerow, 'DamageTableRow')
-  const damageKey = createParamsExpression(query.damagekey, 'DamageKey')
-  const condition = createParamsExpression(query.condition, 'Condition')
-  const name = createParamsExpression(query.name, 'Name')
+            if (procedurals.length && paramsList.length)
+              expression += `[.//procedural[${procedurals.join(" and ")}] and .//proceduralparams[${paramsList.join(" and ")}]]`
+            else if (procedurals.length && !paramsList.length)
+              expression += `[.//procedural[${procedurals.join(" and ")}]]`
+            else if (!procedurals.length && paramsList.length)
+              expression += `[.//procedural[.//proceduralparams[${paramsList.join(" and ")}]]]`
+          }
+          else {
+            if (procedurals.length)
+              expression += `[.//procedural[${procedurals.join(" and ")}]]`
+          }
+        }
+      }
+    }
+  }
+  else
+    expression += 'fragment/proclayer'
 
-  const paramsVariables = [newAction, newFragment, damageTableRow, damageKey, condition, name].filter(value => value);
-
-  const proceduralQuery = proceduralVariables.length > 0 ? proceduralVariables.join(" and ") : ''
-  const paramsQuery = paramsVariables.length > 0 ? `.//proceduralparams[${paramsVariables.join(" and ")}]` : ''
-  const comboQuery = paramsQuery && proceduralQuery ? `[${proceduralQuery} and ${paramsQuery}]` : `[${proceduralQuery || paramsQuery}]`
-
-  const procedural = `[.//procedural${comboQuery}]`
-  const expression = `//${fragment}fragment${tags}/proclayer${procedural}`
-
-  //console.log(expression)
+  console.log(expression)
   const evaluation = doc.evaluate(expression, doc, null, 5, null)
 
+  const result: AnimationData[] = []
   let node = evaluation.iterateNext() as HTMLUnknownElement | null
-  const result: AnimationQueryResult[][] = []
+  const resultIndex: Map<string, number> = new Map()
+  const tagsIndex: Map<string, number> = new Map()
+
   while (node) {
-    const fragmentName = node.closest("fragment")?.parentNode?.nodeName
+    const fragment = node.closest("Fragment")
+    if (!fragment) {
+      node = evaluation.iterateNext() as HTMLUnknownElement | null
+      continue
+    }
+    const tags = fragment.getAttribute("Tags") || ''
+    const animation = fragment.parentNode?.nodeName!
+    const blends = node.querySelectorAll('Blend')
+    const procedurals = node.querySelectorAll('Procedural')
 
-    const blends = node.querySelectorAll('blend')
-    const procedurals = node.querySelectorAll('procedural')
 
-    const eleResult: AnimationQueryResult[] = []
-
+    const proclayer: ProcLayerData[] = []
     for (let i = 0; i < blends.length; i++) {
-
-      const obj: AnimationQueryResult = {
-        fragment: fragmentName || '',
-        starttime: '',
-        exittime: '',
-        duration: '',
-        curvetype: '',
-        type: '',
-        contexttype: '',
-        proceduralparams: {}
-      }
-
+      const obj: ProcLayerData = {}
       for (const attribute of blends[i]?.attributes) {
+        if (animation == 'Ability_Greatsword_Combo') {
+          console.log(attribute.nodeName, attribute.nodeValue)
+        }
+        // @ts-ignore
         obj[attribute.nodeName] = attribute.nodeValue || ''
       }
 
       if (procedurals[i]) {
         for (const attribute of procedurals[i].attributes) {
+          //@ts-ignore
           obj[attribute.nodeName] = attribute.nodeValue || ''
         }
       }
+
       const params = procedurals[i]?.querySelector('ProceduralParams')
-      if (!params) continue
-      obj.proceduralparams = {} as { [key: string]: string }
-      for (const child of params.querySelectorAll('*')) {
-        obj.proceduralparams[child.nodeName.toLowerCase()] = child.getAttribute('value')?.valueOf() || ''
-      }
-      eleResult.push(obj)
+      obj.ProceduralParams ??= {} as { [key: string]: string }
+      if (params)
+        for (const child of params.querySelectorAll('*')) {
+          obj.ProceduralParams[child.nodeName] = child.getAttribute('value')?.valueOf() || ''
+        }
+      proclayer.push(obj)
     }
 
-    if (eleResult.length > 0) {
-      result.push(eleResult)
+    if (!resultIndex.has(animation)) {
+      resultIndex.set(animation, result.length)
+      tagsIndex.set(animation + tags, 0)
+      result.push({
+        Animation: animation,
+        Fragments: [{
+          Tags: tags,
+          ProcLayers: []
+        }]
+      })
+      if (proclayer.length)
+        result[result.length - 1].Fragments?.[0]?.ProcLayers?.push(proclayer)
+    }
+    else {
+      const idx = resultIndex.get(animation)!
+      if (!tagsIndex.has(animation + tags)) {
+        result[idx].Fragments?.push({
+          Tags: tags,
+          ProcLayers: []
+        })
+        tagsIndex.set(animation + tags, result[idx]?.Fragments?.length! - 1)
+      }
+      const tagsIdx = tagsIndex.get(animation + tags)!
+      if (proclayer.length)
+        result[idx].Fragments?.[tagsIdx]?.ProcLayers?.push(proclayer)
     }
 
     node = evaluation.iterateNext() as HTMLUnknownElement | null
