@@ -5,11 +5,15 @@ import { type JSDOM } from 'jsdom'
 /**
  * @example
  * ```typescript
+ * const file = readFileSync('./npc_commander_1h_swordanims.adb', { encoding: 'utf8' })
+ * const dom = new JSDOM(file, { contentType: 'text/xml' })
  * const query: AnimationQuery = {
- *  tags: ['axe', '1h_melee'],
- *  fragment: "Attack_Primary"
+ *  animation: "Attack_Primary",
+ *  fragment: {
+ *    tags: ['axe', '1h_melee'],
+ *  } 
  * }
- * const result = animationsQuery(query)
+ * const result = Query(dom.window.document, query)
  * ```
  */
 export function Query(doc: JSDOM['window']['document'], query?: AnimationQuery, caseSensitive: boolean = false) {
